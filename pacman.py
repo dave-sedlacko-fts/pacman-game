@@ -2,7 +2,6 @@
 Pacman Game - Simple movement version
 """
 
-import pygame
 import random
 import json
 import math
@@ -12,6 +11,64 @@ import threading
 import os
 import sys
 from pathlib import Path
+
+
+def check_dependencies():
+    """Check if pygame is installed and offer to install if missing."""
+    try:
+        import pygame
+        return True
+    except ImportError:
+        return handle_missing_pygame()
+
+
+def handle_missing_pygame():
+    """Provide OS-specific instructions for installing pygame."""
+    import platform
+    system = platform.system()
+
+    print("\n" + "=" * 60)
+    print("MISSING DEPENDENCY: pygame is not installed")
+    print("=" * 60 + "\n")
+
+    if system == "Darwin":  # macOS
+        print("On macOS, you may need to install SDL2 first:")
+        print("  brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf\n")
+        print("Then install pygame:")
+        print("  pip install pygame\n")
+    elif system == "Windows":
+        print("Install pygame with:")
+        print("  pip install pygame\n")
+    else:  # Linux
+        print("On Linux, install SDL2 and pygame:")
+        print("  sudo apt-get install libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev")
+        print("  pip install pygame\n")
+
+    # Offer auto-install of pygame
+    response = input("Would you like to try installing pygame now? (y/n): ")
+    if response.lower() == 'y':
+        return install_pygame()
+    return False
+
+
+def install_pygame():
+    """Attempt to install pygame via pip."""
+    import subprocess
+    print("\nInstalling pygame...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pygame"])
+        print("pygame installed successfully! Restarting game...\n")
+        # Re-run the script
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except subprocess.CalledProcessError:
+        print("\nFailed to install pygame automatically.")
+        print("Please install it manually using the instructions above.")
+        return False
+
+
+# pygame is imported conditionally after dependency check in main()
+# This allows the script to show helpful error messages if pygame is missing
+pygame = None
 
 # Game version - increment this when releasing updates
 GAME_VERSION = "1.0.0"
@@ -130,8 +187,6 @@ class UpdateChecker:
         thread = threading.Thread(target=self.download_update, daemon=True)
         thread.start()
 
-
-pygame.init()
 
 # Constants
 TILE_SIZE = 24
@@ -1009,6 +1064,16 @@ class Game:
         pygame.quit()
 
 
+def main():
+    """Main entry point with dependency checking."""
+    global pygame
+    if check_dependencies():
+        import pygame as pg
+        pygame = pg
+        pygame.init()
+        game = Game()
+        game.run()
+
+
 if __name__ == "__main__":
-    game = Game()
-    game.run()
+    main()
