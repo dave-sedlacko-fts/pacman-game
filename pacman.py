@@ -32,12 +32,11 @@ def handle_missing_pygame():
     print("=" * 60 + "\n")
 
     if system == "Darwin":  # macOS
-        print("On macOS, you must install SDL2 first:")
-        print("  brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf\n")
-        print("Then install pygame:")
+        print("Install pygame with:")
+        print("  pip install pygame-ce\n")
+        print("Or if that fails, install SDL2 first, then pygame:")
+        print("  brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf")
         print("  pip install pygame\n")
-        print("After installing both, run this game again.")
-        return False
     elif system == "Windows":
         print("Install pygame with:")
         print("  pip install pygame\n")
@@ -46,26 +45,46 @@ def handle_missing_pygame():
         print("  sudo apt-get install libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev")
         print("  pip install pygame\n")
 
-    # Offer auto-install of pygame (not on macOS - requires SDL2 first)
+    # Offer auto-install
     response = input("Would you like to try installing pygame now? (y/n): ")
     if response.lower() == 'y':
-        return install_pygame()
+        return install_pygame(system)
     return False
 
 
-def install_pygame():
+def install_pygame(system=""):
     """Attempt to install pygame via pip."""
     import subprocess
-    print("\nInstalling pygame...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pygame"])
-        print("pygame installed successfully! Restarting game...\n")
-        # Re-run the script
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-    except subprocess.CalledProcessError:
-        print("\nFailed to install pygame automatically.")
-        print("Please install it manually using the instructions above.")
-        return False
+
+    # On macOS, try pygame-ce first (better pre-built wheel support)
+    if system == "Darwin":
+        print("\nInstalling pygame-ce (Community Edition)...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pygame-ce"])
+            print("pygame-ce installed successfully! Restarting game...\n")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except subprocess.CalledProcessError:
+            print("pygame-ce failed, trying pygame with pre-built wheels...")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                       "pygame", "--only-binary", ":all:"])
+                print("pygame installed successfully! Restarting game...\n")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except subprocess.CalledProcessError:
+                print("\nFailed to install pygame automatically.")
+                print("Please install SDL2 first with: brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf")
+                print("Then run: pip install pygame")
+                return False
+    else:
+        print("\nInstalling pygame...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pygame"])
+            print("pygame installed successfully! Restarting game...\n")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except subprocess.CalledProcessError:
+            print("\nFailed to install pygame automatically.")
+            print("Please install it manually using the instructions above.")
+            return False
 
 
 # pygame is imported conditionally after dependency check in main()
