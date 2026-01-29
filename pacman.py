@@ -32,10 +32,12 @@ def handle_missing_pygame():
     print("=" * 60 + "\n")
 
     if system == "Darwin":  # macOS
-        print("On macOS, you may need to install SDL2 first:")
+        print("On macOS, you must install SDL2 first:")
         print("  brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf\n")
         print("Then install pygame:")
         print("  pip install pygame\n")
+        print("After installing both, run this game again.")
+        return False
     elif system == "Windows":
         print("Install pygame with:")
         print("  pip install pygame\n")
@@ -44,7 +46,7 @@ def handle_missing_pygame():
         print("  sudo apt-get install libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev")
         print("  pip install pygame\n")
 
-    # Offer auto-install of pygame
+    # Offer auto-install of pygame (not on macOS - requires SDL2 first)
     response = input("Would you like to try installing pygame now? (y/n): ")
     if response.lower() == 'y':
         return install_pygame()
