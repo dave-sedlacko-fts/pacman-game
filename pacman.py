@@ -6,7 +6,130 @@ import pygame
 import random
 import json
 import math
+import urllib.request
+import urllib.error
+import threading
+import os
+import sys
 from pathlib import Path
+
+# Game version - increment this when releasing updates
+GAME_VERSION = "1.0.0"
+GITHUB_REPO = "dave-sedlacko-fts/pacman-game"
+GITHUB_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/pacman.py"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/commits/main"
+
+
+class UpdateChecker:
+    """Checks GitHub for updates and handles downloading."""
+
+    def __init__(self):
+        self.update_available = False
+        self.remote_version = None
+        self.error_message = None
+        self.checking = True
+        self.download_progress = 0
+        self.downloading = False
+        self.download_complete = False
+        self.download_error = None
+
+    def get_remote_version(self):
+        """Fetch the version from the remote pacman.py file."""
+        try:
+            req = urllib.request.Request(
+                GITHUB_RAW_URL,
+                headers={'User-Agent': 'PacmanGame-UpdateChecker'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                content = response.read().decode('utf-8')
+                # Look for GAME_VERSION in the remote file
+                for line in content.split('\n'):
+                    if line.startswith('GAME_VERSION'):
+                        # Extract version string
+                        version = line.split('=')[1].strip().strip('"\'')
+                        return version, content
+        except urllib.error.URLError as e:
+            self.error_message = f"Network error: {e.reason}"
+        except Exception as e:
+            self.error_message = f"Error checking for updates: {str(e)}"
+        return None, None
+
+    def check_for_updates(self):
+        """Check if there's a newer version available."""
+        remote_version, remote_content = self.get_remote_version()
+        self.checking = False
+
+        if remote_version is None:
+            return
+
+        self.remote_version = remote_version
+
+        # Compare versions
+        if self.compare_versions(remote_version, GAME_VERSION) > 0:
+            self.update_available = True
+            self.remote_content = remote_content
+
+    def compare_versions(self, v1, v2):
+        """Compare two version strings. Returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal."""
+        try:
+            parts1 = [int(x) for x in v1.split('.')]
+            parts2 = [int(x) for x in v2.split('.')]
+
+            for i in range(max(len(parts1), len(parts2))):
+                p1 = parts1[i] if i < len(parts1) else 0
+                p2 = parts2[i] if i < len(parts2) else 0
+                if p1 > p2:
+                    return 1
+                elif p1 < p2:
+                    return -1
+            return 0
+        except:
+            return 0
+
+    def download_update(self):
+        """Download and install the update."""
+        self.downloading = True
+        try:
+            # Get the path to the current script
+            script_path = os.path.abspath(__file__)
+            backup_path = script_path + ".backup"
+
+            # Create a backup
+            with open(script_path, 'r') as f:
+                original_content = f.read()
+            with open(backup_path, 'w') as f:
+                f.write(original_content)
+
+            # Write the new version
+            with open(script_path, 'w') as f:
+                f.write(self.remote_content)
+
+            self.download_complete = True
+
+        except Exception as e:
+            self.download_error = str(e)
+            # Try to restore backup
+            try:
+                if os.path.exists(backup_path):
+                    with open(backup_path, 'r') as f:
+                        backup_content = f.read()
+                    with open(script_path, 'w') as f:
+                        f.write(backup_content)
+            except:
+                pass
+        finally:
+            self.downloading = False
+
+    def start_check(self):
+        """Start the update check in a background thread."""
+        thread = threading.Thread(target=self.check_for_updates, daemon=True)
+        thread.start()
+
+    def start_download(self):
+        """Start the download in a background thread."""
+        thread = threading.Thread(target=self.download_update, daemon=True)
+        thread.start()
+
 
 pygame.init()
 
@@ -488,7 +611,11 @@ class Game:
         self.small_font = pygame.font.Font(None, 24)
         self.high_score_manager = HighScoreManager()
 
-        self.state = 'menu'
+        # Initialize update checker and start background check
+        self.update_checker = UpdateChecker()
+        self.update_checker.start_check()
+
+        self.state = 'checking_updates'
         self.pacman_color_name = 'yellow'
         self.pacman_color = PACMAN_COLORS['yellow']
         self.color_options = list(PACMAN_COLORS.keys())
@@ -652,6 +779,44 @@ class Game:
         self.game_surface.blit(self.small_font.render("ESC to go back", True, WHITE),
             self.small_font.render("ESC to go back", True, WHITE).get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT - 60)))
 
+    def draw_update_check(self):
+        self.game_surface.fill(BLACK)
+        text = self.font.render("Checking for updates...", True, WHITE)
+        self.game_surface.blit(text, text.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2)))
+        ver = self.small_font.render(f"Current version: {GAME_VERSION}", True, (100, 100, 100))
+        self.game_surface.blit(ver, ver.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2 + 50)))
+
+    def draw_update_prompt(self):
+        self.game_surface.fill(BLACK)
+        title = self.font.render("Update Available!", True, PACMAN_COLORS['yellow'])
+        self.game_surface.blit(title, title.get_rect(center=(GAME_WIDTH // 2, 150)))
+
+        cur = self.small_font.render(f"Current: v{GAME_VERSION}", True, WHITE)
+        new = self.small_font.render(f"New: v{self.update_checker.remote_version}", True, (0, 255, 0))
+        self.game_surface.blit(cur, cur.get_rect(center=(GAME_WIDTH // 2, 220)))
+        self.game_surface.blit(new, new.get_rect(center=(GAME_WIDTH // 2, 250)))
+
+        y_text = self.font.render("Y - Download Update", True, WHITE)
+        n_text = self.font.render("N - Skip", True, WHITE)
+        self.game_surface.blit(y_text, y_text.get_rect(center=(GAME_WIDTH // 2, 350)))
+        self.game_surface.blit(n_text, n_text.get_rect(center=(GAME_WIDTH // 2, 400)))
+
+    def draw_downloading(self):
+        self.game_surface.fill(BLACK)
+        text = self.font.render("Downloading update...", True, WHITE)
+        self.game_surface.blit(text, text.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2)))
+
+    def draw_update_complete(self):
+        self.game_surface.fill(BLACK)
+        title = self.font.render("Update Complete!", True, (0, 255, 0))
+        self.game_surface.blit(title, title.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2 - 50)))
+
+        msg = self.small_font.render("Please restart the game to use the new version.", True, WHITE)
+        self.game_surface.blit(msg, msg.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2 + 20)))
+
+        key = self.small_font.render("Press any key to exit", True, (100, 100, 100))
+        self.game_surface.blit(key, key.get_rect(center=(GAME_WIDTH // 2, GAME_HEIGHT // 2 + 80)))
+
     def run(self):
         running = True
 
@@ -716,8 +881,33 @@ class Game:
                         if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
                             self.state = 'menu'
 
+                    elif self.state == 'update_available':
+                        if event.key == pygame.K_y:
+                            self.update_checker.start_download()
+                            self.state = 'downloading_update'
+                        elif event.key == pygame.K_n:
+                            self.state = 'menu'
+
+                    elif self.state == 'update_complete':
+                        running = False  # Any key exits
+
                 if event.type == pygame.VIDEORESIZE and not self.fullscreen:
                     self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+
+            # Update checker state logic
+            if self.state == 'checking_updates':
+                if not self.update_checker.checking:
+                    if self.update_checker.update_available:
+                        self.state = 'update_available'
+                    else:
+                        self.state = 'menu'
+
+            elif self.state == 'downloading_update':
+                if not self.update_checker.downloading:
+                    if self.update_checker.download_complete:
+                        self.state = 'update_complete'
+                    elif self.update_checker.download_error:
+                        self.state = 'menu'  # Go to menu on error
 
             # Game logic
             if self.state == 'playing':
@@ -803,6 +993,14 @@ class Game:
                 self.draw_high_score_entry()
             elif self.state == 'high_scores':
                 self.draw_high_scores()
+            elif self.state == 'checking_updates':
+                self.draw_update_check()
+            elif self.state == 'update_available':
+                self.draw_update_prompt()
+            elif self.state == 'downloading_update':
+                self.draw_downloading()
+            elif self.state == 'update_complete':
+                self.draw_update_complete()
 
             self.scale_display()
             pygame.display.flip()
